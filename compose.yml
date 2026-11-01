@@ -33,7 +33,7 @@ services:
       retries: 5
 
   rabbitmq:
-    container_name: task-tracker-email-sender-rabbitmq
+    container_name: task-tracker-rabbitmq
     image: rabbitmq:4.4.0-management-alpine
     restart: unless-stopped
     ports:
@@ -44,7 +44,7 @@ services:
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS}
       RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST}
     volumes:
-      - rabbitmq_data:/var/lib/rabbitmq
+      - task_tracker_rabbitmq:/var/lib/rabbitmq
     healthcheck:
       test: [ "CMD", "rabbitmq-diagnostics", "-q", "ping" ]
       interval: 10s
@@ -56,6 +56,7 @@ services:
     build:
       context: https://github.com/blazing-band/task-tracker-backend.git
       dockerfile: Dockerfile
+    command: sh -c "alembic upgrade head && uvicorn src.main:app --host 0.0.0.0 --port 8080"
     restart: unless-stopped
     ports:
       - "${BACKEND_APP_PORT}:${BACKEND_APP_PORT}"
@@ -68,11 +69,20 @@ services:
       DB_PASS: ${DB_PASS}
       DB_HOST: ${DB_HOST}
       DB_PORT: ${DB_PORT}
+      REDIS_URL: ${REDIS_URL}
+      REDIS_HOST: ${REDIS_HOST}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      REDIS_PORT: ${REDIS_PORT}
       JWT_ALGORITHM: ${JWT_ALGORITHM}
       JWT_SECRET: ${JWT_SECRET}
       JWT_ACCESS_EXPIRATION_MINUTES: ${JWT_ACCESS_EXPIRATION_MINUTES}
       JWT_REFRESH_EXPIRATION_MINUTES: ${JWT_REFRESH_EXPIRATION_MINUTES}
-    depends:
+      RABBITMQ_HOST: ${RABBITMQ_HOST}
+      RABBITMQ_PORT: ${RABBITMQ_PORT}
+      RABBITMQ_USER: ${RABBITMQ_USER}
+      RABBITMQ_PASS: ${RABBITMQ_PASS}
+      RABBITMQ_VHOST: ${RABBITMQ_VHOST}
+    depends_on:
       postgresql:
         condition: service_healthy
       redis:
@@ -80,35 +90,19 @@ services:
       rabbitmq:
         condition: service_healthy
 
-  email-sender-web:
-    container_name: task-tracker-email-sender-web
-    build:
-      context: https://github.com/blazing-band/task-tracker-email-sender.git
-      dockerfile: Dockerfile
-    restart: unless-stopped
-    ports:
-      - "${EMAIL_SENDER_APP_PORT}:${EMAIL_SENDER__APP_PORT}"
-    environment:
-      PORT: ${EMAIL_SENDER_APP_PORT}
-      RABBITMQ_USER: ${RABBITMQ_USER}
-      RABBITMQ_PASS: ${RABBITMQ_PASS}
-      RABBITMQ_VHOST: ${RABBITMQ_VHOST}
-    depends:
-      backend:
-        condition: service_started
-
   email-sender-worker:
-    container_name: task-tracker-email-sender-web
+    container_name: task-tracker-email-sender
     build:
       context: https://github.com/blazing-band/task-tracker-email-sender.git
       dockerfile: Dockerfile
-    command: celery -A src.email_sender.tasks worker --loglevel=INFO
     restart: unless-stopped
     environment:
+      RABBITMQ_HOST: ${RABBITMQ_HOST}
+      RABBITMQ_PORT: ${RABBITMQ_PORT}
       RABBITMQ_USER: ${RABBITMQ_USER}
       RABBITMQ_PASS: ${RABBITMQ_PASS}
       RABBITMQ_VHOST: ${RABBITMQ_VHOST}
-    depends:
+    depends_on:
       backend:
         condition: service_started
 
